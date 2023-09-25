@@ -6,11 +6,16 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
-from django.views.generic import (CreateView, DeleteView, DetailView, ListView,
-                                  UpdateView)
+from django.views.generic import (
+    CreateView,
+    DeleteView,
+    DetailView,
+    ListView,
+    UpdateView,
+)
 from weasyprint import HTML
 
-from .forms import InvoiceCreateForm
+from .forms import InvoiceCreateForm, InvoiceEditForm, ClientCreateForm
 from .models import Client, Invoice, InvoiceItem
 
 InvoiceItemsFormset = inlineformset_factory(
@@ -28,11 +33,13 @@ InvoiceItemsFormset = inlineformset_factory(
 class HomePage(ListView):
     template_name = "home.html"
     context_object_name = "invoices"
+    paginate_by = 10
 
     def get_queryset(self):
         if self.request.user.is_authenticated:
-            # Ensure queryset is cached
-            invoices = Invoice.objects.filter(user=self.request.user)
+            invoices = Invoice.objects.filter(user=self.request.user).order_by(
+                "-create_date"
+            )
             return invoices
         else:
             return Invoice.objects.none()
@@ -41,7 +48,7 @@ class HomePage(ListView):
         # Call the base implementation first to get the data
         context = super(HomePage, self).get_context_data(**kwargs)
         try:
-            recent_invoices = context["invoices"].order_by("-id")[:4]
+            recent_invoices = context["invoices"][:4]
         except (IndexError, AttributeError):
             recent_invoices = None
         context["recent_invoices"] = recent_invoices
@@ -53,7 +60,6 @@ class InvoiceListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         if self.request.user.is_authenticated:
-            # Ensure queryset is cached
             invoices = Invoice.objects.filter(user=self.request.user)
             return invoices
         else:
@@ -115,12 +121,13 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse("invoice-list")
+        return reverse("invoice-detail", args=[self.object.pk])
 
 
 class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
-    fields = ["title", "client", "invoice_terms"]
+    # fields = ["title", "client", "invoice_terms"]
     template_name = "edit_invoice.html"
+    form_class = InvoiceEditForm
 
     def get_queryset(self):
         if self.request.user.is_authenticated:
@@ -148,7 +155,7 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse("invoice-list")
+        return reverse("invoice-detail", args=[self.object.pk])
 
 
 class InvoiceDeleteView(LoginRequiredMixin, DeleteView):
@@ -165,19 +172,12 @@ class InvoiceDeleteView(LoginRequiredMixin, DeleteView):
 class ClientCreateView(LoginRequiredMixin, CreateView):
     model = Client
     template_name = "new_client.html"
-    fields = (
-        "first_name",
-        "last_name",
-        "email",
-        "company",
-        "address1",
-        "address2",
-        "country",
-        "phone_number",
-    )
+    form_class = ClientCreateForm
 
     def form_valid(self, form):
-        form.instance.created_by = self.request.user
+        client = form.save(commit=False)
+        client.created_by = self.request.user
+        client.save()
         return super().form_valid(form)
 
 
